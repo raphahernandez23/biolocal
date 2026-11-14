@@ -107,11 +107,20 @@ async function bioVerify(credIdB64) {
 let stream = null;
 
 async function openCamera(facing) {
-    if (stream) stream.getTracks().forEach(t => t.stop());
+    // Apagar cámara anterior si existe
+    if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+    }
+    const v = document.getElementById('video');
+    v.srcObject = null; // Limpiar buffer
+    
+    // 🔥 EL PARCHE: Esperar 500ms a que el hardware se libere
+    await new Promise(r => setTimeout(r, 500)); 
+
     stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: facing, width: { ideal: 1280 } }
     });
-    const v = document.getElementById('video');
     v.srcObject = stream;
     v.classList.remove('hidden');
     await v.play();
@@ -120,7 +129,9 @@ async function openCamera(facing) {
 function closeCamera() {
     if (stream) stream.getTracks().forEach(t => t.stop());
     stream = null;
-    document.getElementById('video').classList.add('hidden');
+    const v = document.getElementById('video');
+    v.srcObject = null;
+    v.classList.add('hidden');
     document.getElementById('cam-actions').classList.add('hidden');
     document.getElementById('cam-actions').innerHTML = '';
 }
@@ -195,7 +206,7 @@ async function enroll() {
         log('✅ Texto leído:\n' + docText.slice(0, 200));
 
         log('→ Cámara frontal: captura tu rostro en vivo.');
-        await openCamera('user');
+        await openCamera('user'); // Aquí usará el parche
         await waitCapture();
         const faceImg = captureFrame();
         closeCamera();
