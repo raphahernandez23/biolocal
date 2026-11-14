@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>BioLocal — Sistema Biométrico</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: -apple-system, system-ui, sans-serif;
+    background: #0f172a; color: #e2e8f0;
+    min-height: 100vh; padding: 20px;
+}
+.container { max-width: 500px; margin: 0 auto; }
+h1 { text-align: center; margin-bottom: 20px; font-size: 22px; color: #38bdf8; }
+.card { background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+button {
+    width: 100%; padding: 16px; margin: 8px 0; border: none;
+    border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;
+}
+.btn-primary { background: #38bdf8; color: #0f172a; }
+.btn-secondary { background: #475569; color: #e2e8f0; }
+.btn-danger { background: #ef4444; color: white; }
+button:active { transform: scale(0.98); }
+.status {
+    background: #0f172a; padding: 16px; border-radius: 8px;
+    font-family: monospace; font-size: 13px; white-space: pre-wrap;
+    border-left: 3px solid #38bdf8; min-height: 80px;
+}
+video { width: 100%; border-radius: 8px; margin-top: 8px; }
+.hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>🔐 BioLocal</h1>
+    <div class="card">
+        <button class="btn-primary" onclick="enroll()">📝 Registrarme</button>
+        <button class="btn-secondary" onclick="verify()">✅ Verificar identidad</button>
+        <button class="btn-secondary" onclick="showAudit()">📊 Ver auditoría</button>
+        <button class="btn-danger" onclick="resetAll()">🗑️ Resetear</button>
+    </div>
+    <div class="card">
+        <div id="status" class="status">Listo. Pulsa "Registrarme" para empezar.</div>
+    </div>
+    <div class="card">
+        <video id="video" autoplay playsinline muted class="hidden"></video>
+        <div id="cam-actions" class="hidden"></div>
+    </div>
+    <canvas id="canvas" class="hidden"></canvas>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+// ═══════════ IndexedDB ═══════════
+const openDB = () => new Promise((res, rej) => {
+    const req = indexedDB.open('biolocal', 1);
+    req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains('users')) db.createObjectStore('users', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('audit')) db.createObjectStore('audit', { keyPath: 'ts' });
+    };
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
+});
+const dbGet = async (s, k) => { const db = await openDB(); return new Promise(r => { const t = db.transaction(s).objectStore(s).get(k); t.onsuccess = () => r(t.result); }); };
+const dbPut = async (s, v) => { const db = await openDB(); return new Promise(r => { const t = db.transaction(s, 'readwrite').objectStore(s).put(v); t.onsuccess = () => r(); }); };
+const dbGetAll = async (s) => { const db = await openDB(); return new Promise(r => { const t = db.transaction(s).objectStore(s).getAll(); t.onsuccess = () => r(t.result); }); };
+const dbClear = async (s) => { const db = await openDB(); return new Promise(r => { const t = db.transaction(s, 'readwrite').objectStore(s).clear(); t.onsuccess = () => r(); }); };
+
+// ═══════════ UI ═══════════
+const setStatus = m => document.getElementById('status').innerHTML = m;
+const log = m => document.getElementById('status').innerHTML += '\n' + m;
+
+// ═══════════ WebAuthn (huella/rostro real del S26) ═══════════
+const buf2b64 = b => btoa(String.fromCharCode(...new Uint8Array(b)));
+const b64url2buf = s => {
+    const b = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
+    const u = new Uint8Array(b.length);
+    for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i);
+    return u;
+};
+
+async function bioEnroll() {
+    const cred = await navigator.credentials.create({
+        publicKey: {
+            challenge: crypto.getRandomValues(new Uint8Array(32)),
+            rp: { name: 'BioLocal', id: location.hostname },
+            user: {
+                id: crypto.getRandomValues(new Uint8Array(16)),
+                name: 'user@local',
+                displayName: 'Usuario Local'
+            },
+            pubKeyCredParams: [
+                { type: 'public-key', alg: -7 },
+                { type: 'public-key', alg: -257 }
+            ],
+            authenticatorSelection: {
+                authenticatorAttachment: 'platform',
+                userVerification: 'required',
+                residentKey: 'required'
+            },
+            timeout: 60000,
+            attestation: 'none'
+        }
+    });
+    return buf2b64(cred.rawId);
+}
+
+async function bioVerify(credIdB64) {
+    const cred = await navigator.credentials.get({
+        publicKey: {
+            challenge: crypto.getRandomValues(new Uint8Array(32)),
+            allowCredentials: [{ type: 'public-key', id: b64url2buf(credIdB64) }],
+            userVerification: 'required',
+            timeout: 60000
+        }
+    });
+    return !!cred;
+}
+
+// ═══════════ Cámara ═══════════
+let stream = null;
+
+async function openCamera(facing) {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facing, width: { ideal: 1280 } }
+    });
+    const v = document.getElementById('video');
+    v.srcObject = stream;
+    v.classList.remove('hidden');
+    await v.play();
+}
+
+function closeCamera() {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    stream = null;
+    document.getElementById('video').classList.add('hidden');
+    document.getElementById('cam-actions').classList.add('hidden');
+    document.getElementById('cam-actions').innerHTML = '';
+}
+
+function captureFrame() {
+    const v = document.getElementById('video');
+    const c = document.getElementById('canvas');
+    c.width = v.videoWidth;
+    c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0);
+    return c.toDataURL('image/jpeg', 0.85);
+}
+
+function waitCapture() {
+    return new Promise(resolve => {
+        const box = document.getElementById('cam-actions');
+        box.innerHTML = '';
+        const btn = document.createElement('button');
+        btn.className = 'btn-primary';
+        btn.textContent = '📸 Capturar';
+        btn.onclick = () => { box.innerHTML = ''; resolve(); };
+        box.appendChild(btn);
+        box.classList.remove('hidden');
+    });
+}
+
+// ═══════════ Flujo: Registrar ═══════════
+async function enroll() {
+    setStatus('Iniciando registro...\n');
+    try {
+        // 1. Biometría (huella/rostro real vía WebAuthn)
+        log('→ Apoya tu dedo o mira a la cámara...');
+        const credId = await bioEnroll();
+        log('✅ Biometría vinculada');
+
+        // 2. Documento
+        log('→ Cámara trasera: apunta a tu documento.');
+        await openCamera('environment');
+        await waitCapture();
+        const docImg = captureFrame();
+        closeCamera();
+        log('→ OCR en proceso...');
+        const ocr = await Tesseract.recognize(docImg, 'spa');
+        const docText = ocr.data.text;
+        log('✅ Texto leído:\n' + docText.slice(0, 200));
+
+        // 3. Rostro (solo captura para guardar referencia)
+        log('→ Cámara frontal: captura tu rostro.');
+        await openCamera('user');
+        await waitCapture();
+        const faceImg = captureFrame();
+        closeCamera();
+
+        // Extracción de datos
+        const docMatch = docText.replace(/\s/g, '').match(/[A-Z0-9]{6,12}/);
+        const docNumber = docMatch ? docMatch[0] : '000000';
+        const nameLine = docText.split('\n')
+            .filter(l => l.length > 5 && /[A-ZÁÉÍÓÚÑ]{3}/.test(l))
+            .sort((a, b) => (b.match(/[A-Z]/g) || []).length - (a.match(/[A-Z]/g) || []).length)[0];
+        const fullName = nameLine ? nameLine.trim().slice(0, 50) : 'Usuario Local';
+
+        await dbPut('users', {
+            id: 1, fullName, docNumber, credId,
+            faceRef: faceImg.slice(0, 5000),
+            enrolledAt: Date.now()
+        });
+
+        log(`\n✅ USUARIO REGISTRADO\nNombre: ${fullName}\nDoc: ${docNumber}`);
+    } catch (e) {
+        log('\n❌ Error: ' + e.message);
+    } finally {
+        closeCamera();
+    }
+}
+
+// ═══════════ Flujo: Verificar ═══════════
+async function verify() {
+    setStatus('Verificando identidad...\n');
+    try {
+        const user = await dbGet('users', 1);
+        if (!user) { log('❌ No hay usuario. Regístrate primero.'); return; }
+
+        // 1. Biometría
+        log('→ Autentica con huella o rostro...');
+        let bioOk = false;
+        try {
+            bioOk = await bioVerify(user.credId);
+        } catch (e) {
+            log('❌ Biometría cancelada');
+        }
+        if (bioOk) log('✅ Biometría OK');
+
+        // 2. Documento
+        log('→ Escanea tu documento de nuevo.');
+        await openCamera('environment');
+        await waitCapture();
+        const img = captureFrame();
+        closeCamera();
+        log('→ OCR...');
+        const ocr = await Tesseract.recognize(img, 'spa');
+        const clean = ocr.data.text.replace(/\s/g, '');
+        const docOk = clean.includes(user.docNumber.replace(/\s/g, ''));
+        log(docOk ? '✅ Documento coincide' : '❌ Documento NO coincide');
+
+        // Resultado
+        const score = (bioOk && docOk) ? 1 : 0.5;
+        const decision = (bioOk && docOk) ? 'ACCEPT' : 'REJECT';
+
+        setStatus(
+            (decision === 'ACCEPT'
+                ? '🎉 IDENTIDAD VERIFICADA\n\n'
+                : '⛔ VERIFICACIÓN FALLIDA\n\n') +
+            `${bioOk ? '✅' : '❌'} Huella/Rostro\n` +
+            `${docOk ? '✅' : '❌'} Documento\n\n` +
+            `Usuario: ${user.fullName}\nDoc: ${user.docNumber}`
+        );
+
+        await dbPut('audit', {
+            ts: Date.now(), userId: 1,
+            bioOk, docOk, score, decision
+        });
+    } catch (e) {
+        log('\n❌ ' + e.message);
+    } finally {
+        closeCamera();
+    }
+}
+
+// ═══════════ Auditoría ═══════════
+async function showAudit() {
+    const logs = await dbGetAll('audit');
+    if (!logs.length) { setStatus('Sin registros.'); return; }
+    logs.sort((a, b) => b.ts - a.ts);
+    setStatus(logs.map(l =>
+        `${new Date(l.ts).toLocaleString('es')}\n` +
+        `${l.decision}\n` +
+        `Bio:${l.bioOk ? '✅' : '❌'} Doc:${l.docOk ? '✅' : '❌'}`
+    ).join('\n\n'));
+}
+
+async function resetAll() {
+    if (!confirm('¿Borrar todo?')) return;
+    await dbClear('users');
+    await dbClear('audit');
+    setStatus('✅ Datos borrados.');
+}
+
+// ═══════════ Init ═══════════
+(async () => {
+    if (!window.PublicKeyCredential) {
+        setStatus('⚠️ Necesitas Chrome/Safari actualizado y HTTPS.');
+        return;
+    }
+    const ok = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    if (!ok) setStatus('⚠️ No hay biometría disponible. Registra tu huella primero.');
+})();
+</script>
+</body>
+</html>
