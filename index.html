@@ -48,11 +48,11 @@ video { width: 100%; border-radius: 8px; margin-top: 8px; }
         <div id="cam-actions" class="hidden"></div>
     </div>
     <canvas id="canvas" class="hidden"></canvas>
+    <input type="file" id="fileInput" accept="image/*" class="hidden">
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-// ═══════════ IndexedDB ═══════════
 const openDB = () => new Promise((res, rej) => {
     const req = indexedDB.open('biolocal', 1);
     req.onupgradeneeded = e => {
@@ -68,11 +68,9 @@ const dbPut = async (s, v) => { const db = await openDB(); return new Promise(r 
 const dbGetAll = async (s) => { const db = await openDB(); return new Promise(r => { const t = db.transaction(s).objectStore(s).getAll(); t.onsuccess = () => r(t.result); }); };
 const dbClear = async (s) => { const db = await openDB(); return new Promise(r => { const t = db.transaction(s, 'readwrite').objectStore(s).clear(); t.onsuccess = () => r(); }); };
 
-// ═══════════ UI ═══════════
 const setStatus = m => document.getElementById('status').innerHTML = m;
 const log = m => document.getElementById('status').innerHTML += '\n' + m;
 
-// ═══════════ WebAuthn (huella/rostro real del S26) ═══════════
 const buf2b64 = b => btoa(String.fromCharCode(...new Uint8Array(b)));
 const b64url2buf = s => {
     const b = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
@@ -86,22 +84,10 @@ async function bioEnroll() {
         publicKey: {
             challenge: crypto.getRandomValues(new Uint8Array(32)),
             rp: { name: 'BioLocal', id: location.hostname },
-            user: {
-                id: crypto.getRandomValues(new Uint8Array(16)),
-                name: 'user@local',
-                displayName: 'Usuario Local'
-            },
-            pubKeyCredParams: [
-                { type: 'public-key', alg: -7 },
-                { type: 'public-key', alg: -257 }
-            ],
-            authenticatorSelection: {
-                authenticatorAttachment: 'platform',
-                userVerification: 'required',
-                residentKey: 'required'
-            },
-            timeout: 60000,
-            attestation: 'none'
+            user: { id: crypto.getRandomValues(new Uint8Array(16)), name: 'user@local', displayName: 'Usuario Local' },
+            pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+            authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'required' },
+            timeout: 60000, attestation: 'none'
         }
     });
     return buf2b64(cred.rawId);
@@ -112,14 +98,12 @@ async function bioVerify(credIdB64) {
         publicKey: {
             challenge: crypto.getRandomValues(new Uint8Array(32)),
             allowCredentials: [{ type: 'public-key', id: b64url2buf(credIdB64) }],
-            userVerification: 'required',
-            timeout: 60000
+            userVerification: 'required', timeout: 60000
         }
     });
     return !!cred;
 }
 
-// ═══════════ Cámara ═══════════
 let stream = null;
 
 async function openCamera(facing) {
@@ -154,43 +138,68 @@ function waitCapture() {
     return new Promise(resolve => {
         const box = document.getElementById('cam-actions');
         box.innerHTML = '';
-        const btn = document.createElement('button');
-        btn.className = 'btn-primary';
-        btn.textContent = '📸 Capturar';
-        btn.onclick = () => { box.innerHTML = ''; resolve(); };
-        box.appendChild(btn);
+        
+        const btnCamera = document.createElement('button');
+        btnCamera.className = 'btn-primary';
+        btnCamera.textContent = '📸 Capturar';
+        btnCamera.onclick = () => { box.innerHTML = ''; resolve('camera'); };
+        
+        const btnGallery = document.createElement('button');
+        btnGallery.className = 'btn-secondary';
+        btnGallery.textContent = '🖼️ Subir de galería';
+        btnGallery.onclick = () => { box.innerHTML = ''; resolve('gallery'); };
+
+        box.appendChild(btnCamera);
+        box.appendChild(btnGallery);
         box.classList.remove('hidden');
     });
 }
 
-// ═══════════ Flujo: Registrar ═══════════
+function getGalleryImage() {
+    return new Promise(resolve => {
+        const input = document.getElementById('fileInput');
+        input.onchange = e => {
+            const file = e.target.files[0];
+            if (!file) return resolve(null);
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.readAsDataURL(file);
+        };
+        input.click();
+    });
+}
+
 async function enroll() {
     setStatus('Iniciando registro...\n');
     try {
-        // 1. Biometría (huella/rostro real vía WebAuthn)
         log('→ Apoya tu dedo o mira a la cámara...');
         const credId = await bioEnroll();
         log('✅ Biometría vinculada');
 
-        // 2. Documento
-        log('→ Cámara trasera: apunta a tu documento.');
+        log('→ Documento: escoge cámara o galería.');
         await openCamera('environment');
-        await waitCapture();
-        const docImg = captureFrame();
+        const actionDoc = await waitCapture();
+        let docImg = null;
+        if (actionDoc === 'camera') {
+            docImg = captureFrame();
+        } else {
+            docImg = await getGalleryImage();
+        }
         closeCamera();
-        log('→ OCR en proceso...');
+
+        if (!docImg) throw new Error("No se seleccionó ningún documento.");
+        
+        log('→ OCR en proceso (puede tardar)...');
         const ocr = await Tesseract.recognize(docImg, 'spa');
         const docText = ocr.data.text;
         log('✅ Texto leído:\n' + docText.slice(0, 200));
 
-        // 3. Rostro (solo captura para guardar referencia)
-        log('→ Cámara frontal: captura tu rostro.');
+        log('→ Cámara frontal: captura tu rostro en vivo.');
         await openCamera('user');
         await waitCapture();
         const faceImg = captureFrame();
         closeCamera();
 
-        // Extracción de datos
         const docMatch = docText.replace(/\s/g, '').match(/[A-Z0-9]{6,12}/);
         const docNumber = docMatch ? docMatch[0] : '000000';
         const nameLine = docText.split('\n')
@@ -212,52 +221,47 @@ async function enroll() {
     }
 }
 
-// ═══════════ Flujo: Verificar ═══════════
 async function verify() {
     setStatus('Verificando identidad...\n');
     try {
         const user = await dbGet('users', 1);
         if (!user) { log('❌ No hay usuario. Regístrate primero.'); return; }
 
-        // 1. Biometría
         log('→ Autentica con huella o rostro...');
         let bioOk = false;
-        try {
-            bioOk = await bioVerify(user.credId);
-        } catch (e) {
-            log('❌ Biometría cancelada');
-        }
+        try { bioOk = await bioVerify(user.credId); } catch (e) { log('❌ Biometría cancelada'); }
         if (bioOk) log('✅ Biometría OK');
 
-        // 2. Documento
-        log('→ Escanea tu documento de nuevo.');
+        log('→ Documento: escoge cámara o galería.');
         await openCamera('environment');
-        await waitCapture();
-        const img = captureFrame();
+        const actionDoc = await waitCapture();
+        let img = null;
+        if (actionDoc === 'camera') {
+            img = captureFrame();
+        } else {
+            img = await getGalleryImage();
+        }
         closeCamera();
+
+        if (!img) throw new Error("No se seleccionó ningún documento.");
+
         log('→ OCR...');
         const ocr = await Tesseract.recognize(img, 'spa');
         const clean = ocr.data.text.replace(/\s/g, '');
         const docOk = clean.includes(user.docNumber.replace(/\s/g, ''));
         log(docOk ? '✅ Documento coincide' : '❌ Documento NO coincide');
 
-        // Resultado
         const score = (bioOk && docOk) ? 1 : 0.5;
         const decision = (bioOk && docOk) ? 'ACCEPT' : 'REJECT';
 
         setStatus(
-            (decision === 'ACCEPT'
-                ? '🎉 IDENTIDAD VERIFICADA\n\n'
-                : '⛔ VERIFICACIÓN FALLIDA\n\n') +
+            (decision === 'ACCEPT' ? '🎉 IDENTIDAD VERIFICADA\n\n' : '⛔ VERIFICACIÓN FALLIDA\n\n') +
             `${bioOk ? '✅' : '❌'} Huella/Rostro\n` +
             `${docOk ? '✅' : '❌'} Documento\n\n` +
             `Usuario: ${user.fullName}\nDoc: ${user.docNumber}`
         );
 
-        await dbPut('audit', {
-            ts: Date.now(), userId: 1,
-            bioOk, docOk, score, decision
-        });
+        await dbPut('audit', { ts: Date.now(), userId: 1, bioOk, docOk, score, decision });
     } catch (e) {
         log('\n❌ ' + e.message);
     } finally {
@@ -265,7 +269,6 @@ async function verify() {
     }
 }
 
-// ═══════════ Auditoría ═══════════
 async function showAudit() {
     const logs = await dbGetAll('audit');
     if (!logs.length) { setStatus('Sin registros.'); return; }
@@ -284,7 +287,6 @@ async function resetAll() {
     setStatus('✅ Datos borrados.');
 }
 
-// ═══════════ Init ═══════════
 (async () => {
     if (!window.PublicKeyCredential) {
         setStatus('⚠️ Necesitas Chrome/Safari actualizado y HTTPS.');
