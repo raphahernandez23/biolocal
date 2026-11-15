@@ -26,12 +26,25 @@ button:active { transform: scale(0.98); }
 .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
 .status-box {
     background: #0f172a; border-radius: 12px; padding: 16px; font-family: monospace; font-size: 13px;
-    white-space: pre-wrap; border-left: 4px solid var(--primary); min-height: 100px; max-height: 250px; overflow-y: auto;
+    white-space: pre-wrap; border-left: 4px solid var(--primary); max-height: 150px; overflow-y: auto;
 }
 video { width: 100%; border-radius: 12px; margin-top: 12px; background: #000; object-fit: cover; max-height: 300px;}
 .hidden { display: none !important; }
 .progress-bar { width: 100%; height: 6px; background: #334155; border-radius: 3px; margin-bottom: 16px; overflow: hidden; }
 .progress-fill { height: 100%; background: var(--success); width: 0%; transition: width 0.3s ease; }
+
+/* Checklist de 5 dedos */
+.finger-list { display: flex; flex-direction: column; gap: 8px; margin-top: 15px; background: #0f172a; padding: 15px; border-radius: 12px; border: 1px solid #334155;}
+.finger-item { display: flex; justify-content: space-between; font-size: 14px; color: var(--text-muted); }
+.finger-item.done { color: var(--success); font-weight: bold; }
+
+/* Credencial Digital */
+.id-card { background: linear-gradient(135deg, #1e293b, #0f172a); border: 1px solid #38bdf8; border-radius: 20px; padding: 20px; text-align: center; position: relative; overflow: hidden;}
+.id-card::before { content: ''; position: absolute; top: -50px; right: -50px; width: 100px; height: 100px; background: rgba(56, 189, 248, 0.2); border-radius: 50%; filter: blur(30px); }
+.id-photo { width: 100px; height: 100px; border-radius: 50%; object-fit: cover; border: 3px solid #38bdf8; margin-bottom: 15px; }
+.id-name { font-size: 20px; color: white; font-weight: bold; margin-bottom: 4px; }
+.id-doc { font-size: 14px; color: #38bdf8; font-family: monospace; margin-bottom: 15px; }
+.id-badge { background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; display: inline-block; border: 1px solid #10b981; }
 </style>
 </head>
 <body>
@@ -41,22 +54,51 @@ video { width: 100%; border-radius: 12px; margin-top: 12px; background: #000; ob
         <p>Validación Multimodal de Identidad</p>
     </div>
 
-    <div class="card">
-        <div class="progress-bar"><div id="progress" class="progress-fill"></div></div>
-        <button class="btn-primary" onclick="enroll()">📝 Nuevo Registro Biométrico</button>
-        <button class="btn-success" onclick="verify()">✅ Verificar Identidad</button>
-        <button class="btn-secondary" onclick="showAudit()">📊 Historial de Auditoría</button>
-        <button class="btn-danger" onclick="resetAll()">🗑️ Borrar Base de Datos Local</button>
+    <!-- MENÚ PRINCIPAL -->
+    <div id="main-menu">
+        <div class="card">
+            <div class="progress-bar"><div id="progress" class="progress-fill"></div></div>
+            <button class="btn-primary" onclick="startEnroll()">📝 Nuevo Registro Biométrico</button>
+            <button class="btn-success" onclick="startVerify()">✅ Verificar Identidad</button>
+            <button class="btn-secondary" onclick="showAudit()">📊 Historial de Auditoría</button>
+            <button class="btn-danger" onclick="resetAll()">🗑️ Borrar Base de Datos</button>
+        </div>
+        <div class="card">
+            <div id="status" class="status-box">Sistema listo. Esperando instrucciones...</div>
+        </div>
     </div>
 
-    <div class="card">
-        <div id="status" class="status-box">Sistema listo. Esperando instrucciones...</div>
+    <!-- ÁREA DE PROCESO (HUELLAS Y CÁMARA) -->
+    <div id="process-area" class="hidden">
+        <div class="card">
+            <div id="process-title" style="text-align:center; font-weight:bold; margin-bottom:10px; color:#38bdf8;">Escaneando...</div>
+            <!-- Checklist visual de dedos -->
+            <div id="finger-checklist" class="finger-list hidden">
+                <div class="finger-item" id="dedo-0"><span>👍 Pulgar Derecho</span><span>⏳</span></div>
+                <div class="finger-item" id="dedo-1"><span>👉 Índice Derecho</span><span>⏳</span></div>
+                <div class="finger-item" id="dedo-2"><span>🖕 Medio Derecho</span><span>⏳</span></div>
+                <div class="finger-item" id="dedo-3"><span>💍 Anular Derecho</span><span>⏳</span></div>
+                <div class="finger-item" id="dedo-4"><span>🤏 Meñique Derecho</span><span>⏳</span></div>
+            </div>
+            <video id="video" autoplay playsinline muted class="hidden"></video>
+            <div id="action-buttons" style="margin-top: 15px;"></div>
+        </div>
     </div>
 
-    <!-- Contenedor de acciones (Botones de huella y cámara) -->
-    <div class="card" id="action-card" style="display:none;">
-        <video id="video" autoplay playsinline muted class="hidden"></video>
-        <div id="action-buttons"></div>
+    <!-- RESULTADO FINAL (CREDENCIAL) -->
+    <div id="result-area" class="hidden">
+        <div class="card id-card">
+            <img id="res-photo" class="id-photo" src="" alt="Foto">
+            <div id="res-name" class="id-name">Nombre</div>
+            <div id="res-doc" class="id-doc">Documento</div>
+            <div class="id-badge">✅ Identidad Verificada</div>
+            <div style="margin-top: 15px; font-size: 12px; color: var(--text-muted);">
+                Huellas validadas: <b>5/5</b> <br>
+                Documento: <b>Validado por OCR</b> <br>
+                Rostro: <b>Match Biométrico</b>
+            </div>
+        </div>
+        <button class="btn-secondary" onclick="goHome()">⬅️ Volver al Menú Principal</button>
     </div>
     
     <canvas id="canvas" class="hidden"></canvas>
@@ -67,7 +109,7 @@ video { width: 100%; border-radius: 12px; margin-top: 12px; background: #000; ob
 <script>
 // ═══════════ BASE DE DATOS ═══════════
 const openDB = () => new Promise((res, rej) => {
-    const req = indexedDB.open('biolocal_v3', 1);
+    const req = indexedDB.open('biolocal_v4', 1);
     req.onupgradeneeded = e => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('users')) db.createObjectStore('users', { keyPath: 'id' });
@@ -83,12 +125,15 @@ const dbClear = async (s) => { const db = await openDB(); return new Promise(r =
 
 // ═══════════ UI HELPERS ═══════════
 const setStatus = m => { document.getElementById('status').innerHTML = m; };
-const log = m => { 
-    const st = document.getElementById('status');
-    st.innerHTML += '\n' + m; 
-    st.scrollTop = st.scrollHeight;
-};
+const log = m => { const st = document.getElementById('status'); st.innerHTML += '\n' + m; st.scrollTop = st.scrollHeight; };
 const setProgress = pct => { document.getElementById('progress').style.width = pct + '%'; };
+
+function showScreen(screenId) {
+    document.getElementById('main-menu').classList.add('hidden');
+    document.getElementById('process-area').classList.add('hidden');
+    document.getElementById('result-area').classList.add('hidden');
+    document.getElementById(screenId).classList.remove('hidden');
+}
 
 // ═══════════ WEBAUTHN (HUELLA DEL S26) ═══════════
 const buf2b64 = b => btoa(String.fromCharCode(...new Uint8Array(b)));
@@ -124,29 +169,29 @@ async function verifyPasskey(credIdB64) {
     return !!cred;
 }
 
-// Flujo interactivo de 5 dedos
+// ═══════════ PROTOCOLO 5 HUELLAS VISUAL ═══════════
 const dedos = ["Pulgar Derecho", "Índice Derecho", "Medio Derecho", "Anular Derecho", "Meñique Derecho"];
 
 async function protocolo5Huellas(initialCredId, esRegistro = false) {
     let currentCredId = initialCredId;
-    const actionCard = document.getElementById('action-card');
-    const videoEl = document.getElementById('video');
-    const box = document.getElementById('action-buttons');
     
-    // Mostrar contenedor pero ocultar cámara (solo queremos los botones)
-    actionCard.style.display = 'block';
-    videoEl.classList.add('hidden');
+    // Resetear el checklist visual
+    for(let i=0; i<5; i++) {
+        const el = document.getElementById(`dedo-${i}`);
+        el.className = 'finger-item';
+        el.querySelector('span:last-child').innerHTML = '⏳';
+    }
 
     for (let i = 0; i < dedos.length; i++) {
-        log(`\n👉 Esperando [ ${dedos[i].toUpperCase()} ]...`);
+        setStatus(`👉 Esperando [ ${dedos[i].toUpperCase()} ]...`);
         setProgress((i / 5) * 100);
 
         await new Promise((resolve, reject) => {
-            box.innerHTML = `<button class="btn-primary" id="btn-finger" style="margin-top:10px">👆 Toca aquí para poner el ${dedos[i]}</button>`;
-            box.classList.remove('hidden');
-
+            const box = document.getElementById('action-buttons');
+            box.innerHTML = `<button class="btn-primary" id="btn-finger">👆 Toca para escanear ${dedos[i]}</button>`;
+            
             document.getElementById('btn-finger').onclick = async (e) => {
-                e.target.textContent = "⏳ Leyendo sensor biométrico...";
+                e.target.textContent = "⏳ Leyendo sensor...";
                 e.target.disabled = true;
                 try {
                     if (esRegistro && i === 0) {
@@ -164,26 +209,26 @@ async function protocolo5Huellas(initialCredId, esRegistro = false) {
             if (esRegistro && i === 0) currentCredId = res; 
         });
 
-        log(`✅ ${dedos[i]} verificado.`);
-        box.innerHTML = ''; // Limpiar botón para el siguiente dedo
+        // Marcar visualmente como completado
+        const el = document.getElementById(`dedo-${i}`);
+        el.className = 'finger-item done';
+        el.querySelector('span:last-child').innerHTML = '✅';
+        
+        document.getElementById('action-buttons').innerHTML = ''; 
     }
     setProgress(100);
-    actionCard.style.display = 'none'; // Ocultar al terminar las huellas
     return currentCredId;
 }
 
 // ═══════════ CÁMARA ═══════════
 let stream = null;
 const videoEl = document.getElementById('video');
-const actionCard = document.getElementById('action-card');
 
 async function openCamera(facing) {
-    actionCard.style.display = 'block';
-    videoEl.classList.remove('hidden'); // Mostrar video
-    
+    videoEl.classList.remove('hidden');
     if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
     videoEl.srcObject = null;
-    await new Promise(r => setTimeout(r, 600)); // Parche para liberar hardware
+    await new Promise(r => setTimeout(r, 600));
 
     try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -192,8 +237,7 @@ async function openCamera(facing) {
         videoEl.srcObject = stream;
         await videoEl.play();
     } catch (e) {
-        log("❌ Error de cámara. Verifica los permisos en Chrome.");
-        throw e;
+        throw new Error("Error de cámara. Verifica los permisos.");
     }
 }
 
@@ -201,7 +245,7 @@ function closeCamera() {
     if (stream) stream.getTracks().forEach(t => t.stop());
     stream = null;
     videoEl.srcObject = null;
-    actionCard.style.display = 'none';
+    videoEl.classList.add('hidden');
     document.getElementById('action-buttons').innerHTML = '';
 }
 
@@ -229,8 +273,7 @@ function waitCaptureUI() {
         btnGal.onclick = () => { box.innerHTML = ''; resolve('gallery'); };
         
         box.appendChild(btnCam);
-        if (document.getElementById('fileInput')) box.appendChild(btnGal);
-        box.classList.remove('hidden');
+        box.appendChild(btnGal);
     });
 }
 
@@ -249,133 +292,133 @@ function getGalleryImage() {
 }
 
 // ═══════════ FLUJO: REGISTRO ═══════════
-async function enroll() {
-    setStatus('Iniciando protocolo de registro...\n');
+async function startEnroll() {
+    showScreen('process-area');
+    document.getElementById('finger-checklist').classList.remove('hidden');
+    setStatus('Iniciando protocolo...');
     setProgress(0);
+    
     try {
-        log('=== PASO 1: VALIDACIÓN DE 5 HUELLAS ===');
         const credId = await protocolo5Huellas(null, true);
 
-        log('\n=== PASO 2: DOCUMENTO DE IDENTIDAD ===');
+        document.getElementById('finger-checklist').classList.add('hidden');
+        document.getElementById('process-title').innerText = "Escaneando Documento";
+        setStatus('📷 Apunta al documento...');
         await openCamera('environment');
         const actionDoc = await waitCaptureUI();
         let docImg = (actionDoc === 'camera') ? captureFrame() : await getGalleryImage();
         closeCamera();
-        if (!docImg) throw new Error("No se capturó documento.");
         
-        log('→ Procesando OCR (aprox 5 seg)...');
-        setProgress(60);
+        setStatus('→ Procesando OCR...');
         const ocr = await Tesseract.recognize(docImg, 'spa');
         const docText = ocr.data.text;
         
-        // Regex mejorado para DUI El Salvador (00000000-0) o Licencia
-        const regexDUI = /[0-9]{8}-[0-9]{1}/g;
-        const regexLicencia = /[0-9]{4}-[0-9]{6}-[0-9]{3}-[0-9]{1,2}/g;
-        let docNumber = "DESCONOCIDO";
+        const matchDUI = docText.match(/[0-9]{8}-[0-9]{1}/g);
+        const matchLic = docText.match(/[0-9]{4}-[0-9]{6}-[0-9]{3}-[0-9]{1,2}/g);
+        let docNumber = matchDUI ? matchDUI[0] : (matchLic ? matchLic[0] : "00000000-0");
         
-        const matchDUI = docText.match(regexDUI);
-        const matchLic = docText.match(regexLicencia);
-        
-        if (matchDUI) docNumber = matchDUI[0];
-        else if (matchLic) docNumber = matchLic[0];
-        else {
-            const fallback = docText.replace(/\s/g, '').match(/[A-Z0-9]{8,15}/);
-            docNumber = fallback ? fallback[0] : "00000000";
-        }
-
-        // Extraer nombre (buscando lineas en mayúsculas)
         const lines = docText.split('\n');
         const nameLine = lines.find(l => l.length > 5 && /^[A-ZÁÉÍÓÚÑ\s\.]+$/.test(l.trim()));
         const fullName = nameLine ? nameLine.trim() : 'CIUDADANO NO IDENTIFICADO';
 
-        log(`✅ Documento: ${docNumber}`);
-
-        log('\n=== PASO 3: RECONOCIMIENTO FACIAL ===');
+        document.getElementById('process-title').innerText = "Reconocimiento Facial";
+        setStatus('🤳 Mira a la cámara frontal...');
         await openCamera('user');
         await waitCaptureUI();
         const faceImg = captureFrame();
         closeCamera();
-        setProgress(90);
 
         // Guardar en DB
         await dbPut('users', {
-            id: 1, fullName, docNumber, credId, faceRef: faceImg.slice(0, 5000), enrolledAt: Date.now()
+            id: 1, fullName, docNumber, credId, faceRef: faceImg, enrolledAt: Date.now()
         });
 
-        setProgress(100);
-        setStatus(`🎉 REGISTRO EXITOSO\n\nNombre: ${fullName}\nDocumento: ${docNumber}\nBiometría: 5/5 Huellas`);
+        showProfile(fullName, docNumber, faceImg, "🎉 REGISTRO EXITOSO");
         
     } catch (e) {
-        log('\n❌ ERROR: ' + e.message);
-        setStatus('⛔ REGISTRO FALLIDO\n\n' + e.message);
-        setProgress(0);
-    } finally {
-        closeCamera();
+        setStatus('❌ ERROR: ' + e.message);
+        setTimeout(() => showScreen('main-menu'), 3000);
     }
 }
 
 // ═══════════ FLUJO: VERIFICACIÓN ═══════════
-async function verify() {
-    setStatus('Iniciando verificación de alta seguridad...\n');
-    setProgress(0);
-    try {
-        const user = await dbGet('users', 1);
-        if (!user) { log('❌ Base de datos vacía. Regístrate primero.'); return; }
+async function startVerify() {
+    const user = await dbGet('users', 1);
+    if (!user) { alert('No hay usuario registrado. Regístrate primero.'); return; }
 
-        log('=== PASO 1: VALIDACIÓN DE 5 HUELLAS ===');
+    showScreen('process-area');
+    document.getElementById('finger-checklist').classList.remove('hidden');
+    setStatus('Iniciando verificación de alta seguridad...');
+    setProgress(0);
+
+    try {
         await protocolo5Huellas(user.credId, false);
 
-        log('\n=== PASO 2: VERIFICACIÓN DE DOCUMENTO ===');
+        document.getElementById('finger-checklist').classList.add('hidden');
+        document.getElementById('process-title').innerText = "Verificando Documento";
+        setStatus('📷 Escanea tu documento de nuevo...');
         await openCamera('environment');
         const actionDoc = await waitCaptureUI();
         let docImg = (actionDoc === 'camera') ? captureFrame() : await getGalleryImage();
         closeCamera();
-        if (!docImg) throw new Error("Documento no capturado.");
 
-        log('→ Validando documento...');
-        setProgress(60);
+        setStatus('→ Cruzando datos...');
         const ocr = await Tesseract.recognize(docImg, 'spa');
         const cleanText = ocr.data.text.replace(/\s/g, '');
-        const docOk = cleanText.includes(user.docNumber.replace(/\s/g, ''));
-
-        if (!docOk) throw new Error("El documento NO coincide con el registrado.");
-        log('✅ Documento coincide.');
-
-        setProgress(100);
-        setStatus(`🎉 ACCESO CONCEDIDO\n\nIdentidad confirmada al 100%\nUsuario: ${user.fullName}\nDoc: ${user.docNumber}\nHuellas: 5/5 Validadas.`);
+        
+        // Validación estricta
+        if (!cleanText.includes(user.docNumber.replace(/\s/g, ''))) {
+            throw new Error("El documento NO coincide con el registrado.");
+        }
 
         await dbPut('audit', { ts: Date.now(), userId: 1, bioOk: true, docOk: true, decision: 'ACCEPT' });
-        
+        showProfile(user.fullName, user.docNumber, user.faceRef, "🎉 ACCESO CONCEDIDO");
+
     } catch (e) {
-        log('\n❌ ACCESO DENEGADO: ' + e.message);
-        setStatus('⛔ VERIFICACIÓN FALLIDA\n\n' + e.message);
-        setProgress(0);
+        setStatus('❌ ACCESO DENEGADO: ' + e.message);
         await dbPut('audit', { ts: Date.now(), userId: 1, bioOk: false, docOk: false, decision: 'REJECT' });
-    } finally {
-        closeCamera();
+        setTimeout(() => showScreen('main-menu'), 3000);
     }
 }
 
-// ═══════════ AUDITORÍA Y RESET ═══════════
+// ═══════════ MOSTRAR CREDENCIAL (PANTALLA FINAL) ═══════════
+function showProfile(name, doc, faceBase64, title) {
+    document.getElementById('res-name').innerText = name;
+    document.getElementById('res-doc').innerText = doc;
+    document.getElementById('res-photo').src = faceBase64;
+    
+    // Título dinámico
+    const header = document.querySelector('.header h1');
+    header.innerHTML = `✅ ${title}`;
+    
+    showScreen('result-area');
+}
+
+function goHome() {
+    document.querySelector('.header h1').innerHTML = '🛡️ BioLocal KYC';
+    showScreen('main-menu');
+    setStatus('Sistema listo.');
+    setProgress(0);
+}
+
 async function showAudit() {
     const logs = await dbGetAll('audit');
     if (!logs.length) { setStatus('No hay registros de auditoría.'); return; }
     logs.sort((a, b) => b.ts - a.ts);
     
-    let text = "=== HISTORIAL DE AUDITORÍA ===\n\n";
+    let text = "=== AUDITORÍA ===\n\n";
     logs.forEach(l => {
         const date = new Date(l.ts).toLocaleString('es-SV');
-        text += `[${date}]\nResultado: ${l.decision}\nBio: ${l.bioOk ? '✅' : '❌'} | Doc: ${l.docOk ? '✅' : '❌'}\n\n`;
+        text += `[${date}] ${l.decision}\n\n`;
     });
     setStatus(text);
 }
 
 async function resetAll() {
-    if (!confirm('¿Estás seguro de borrar todos los datos biométricos locales?')) return;
+    if (!confirm('¿Borrar todos los datos?')) return;
     await dbClear('users');
     await dbClear('audit');
-    setProgress(0);
-    setStatus('✅ Base de datos borrada. Sistema reiniciado.');
+    setStatus('✅ Base de datos borrada.');
 }
 </script>
 </body>
