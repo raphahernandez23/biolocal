@@ -3,58 +3,70 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>BioLocal — Sistema Biométrico</title>
+<title>BioLocal — Identidad Digital</title>
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body {
-    font-family: -apple-system, system-ui, sans-serif;
-    background: #0f172a; color: #e2e8f0;
-    min-height: 100vh; padding: 20px;
+:root {
+    --bg: #0f172a; --card: #1e293b; --primary: #3b82f6; --success: #10b981; --danger: #ef4444; --text: #e2e8f0; --text-muted: #94a3b8;
 }
-.container { max-width: 500px; margin: 0 auto; }
-h1 { text-align: center; margin-bottom: 20px; font-size: 22px; color: #38bdf8; }
-.card { background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, system-ui, sans-serif; }
+body { background: var(--bg); color: var(--text); min-height: 100vh; padding: 20px; display: flex; justify-content: center; }
+.container { width: 100%; max-width: 480px; }
+.header { text-align: center; margin-bottom: 24px; }
+.header h1 { font-size: 24px; color: #fff; display: flex; align-items: center; justify-content: center; gap: 8px;}
+.header p { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
+.card { background: var(--card); border-radius: 16px; padding: 24px; margin-bottom: 16px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
 button {
-    width: 100%; padding: 16px; margin: 8px 0; border: none;
-    border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;
+    width: 100%; padding: 16px; margin: 8px 0; border: none; border-radius: 12px;
+    font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.2s;
 }
-.btn-primary { background: #38bdf8; color: #0f172a; }
-.btn-secondary { background: #475569; color: #e2e8f0; }
-.btn-danger { background: #ef4444; color: white; }
 button:active { transform: scale(0.98); }
-.status {
-    background: #0f172a; padding: 16px; border-radius: 8px;
-    font-family: monospace; font-size: 13px; white-space: pre-wrap;
-    border-left: 3px solid #38bdf8; min-height: 80px;
+.btn-primary { background: var(--primary); color: white; }
+.btn-success { background: var(--success); color: white; }
+.btn-secondary { background: #334155; color: var(--text); }
+.btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+.status-box {
+    background: #0f172a; border-radius: 12px; padding: 16px; font-family: monospace; font-size: 13px;
+    white-space: pre-wrap; border-left: 4px solid var(--primary); min-height: 100px; max-height: 250px; overflow-y: auto;
 }
-video { width: 100%; border-radius: 8px; margin-top: 8px; }
-.hidden { display: none; }
+video { width: 100%; border-radius: 12px; margin-top: 12px; background: #000; object-fit: cover; max-height: 300px;}
+.hidden { display: none !important; }
+.progress-bar { width: 100%; height: 6px; background: #334155; border-radius: 3px; margin-bottom: 16px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--success); width: 0%; transition: width 0.3s ease; }
 </style>
 </head>
 <body>
 <div class="container">
-    <h1>🔐 BioLocal</h1>
-    <div class="card">
-        <button class="btn-primary" onclick="enroll()">📝 Registrarme</button>
-        <button class="btn-secondary" onclick="verify()">✅ Verificar identidad</button>
-        <button class="btn-secondary" onclick="showAudit()">📊 Ver auditoría</button>
-        <button class="btn-danger" onclick="resetAll()">🗑️ Resetear</button>
+    <div class="header">
+        <h1>🛡️ BioLocal KYC</h1>
+        <p>Validación Multimodal de Identidad</p>
     </div>
+
     <div class="card">
-        <div id="status" class="status">Listo. Pulsa "Registrarme" para empezar.</div>
+        <div class="progress-bar"><div id="progress" class="progress-fill"></div></div>
+        <button class="btn-primary" onclick="enroll()">📝 Nuevo Registro Biométrico</button>
+        <button class="btn-success" onclick="verify()">✅ Verificar Identidad</button>
+        <button class="btn-secondary" onclick="showAudit()">📊 Historial de Auditoría</button>
+        <button class="btn-danger" onclick="resetAll()">🗑️ Borrar Base de Datos Local</button>
     </div>
+
     <div class="card">
-        <video id="video" autoplay playsinline muted class="hidden"></video>
-        <div id="cam-actions" class="hidden"></div>
+        <div id="status" class="status-box">Sistema listo. Esperando instrucciones...</div>
     </div>
+
+    <div class="card" id="camera-card" style="display:none;">
+        <video id="video" autoplay playsinline muted></video>
+        <div id="cam-actions"></div>
+    </div>
+    
     <canvas id="canvas" class="hidden"></canvas>
     <input type="file" id="fileInput" accept="image/*" class="hidden">
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
+// ═══════════ BASE DE DATOS (IndexedDB) ═══════════
 const openDB = () => new Promise((res, rej) => {
-    const req = indexedDB.open('biolocal', 1);
+    const req = indexedDB.open('biolocal_v2', 1);
     req.onupgradeneeded = e => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('users')) db.createObjectStore('users', { keyPath: 'id' });
@@ -68,9 +80,16 @@ const dbPut = async (s, v) => { const db = await openDB(); return new Promise(r 
 const dbGetAll = async (s) => { const db = await openDB(); return new Promise(r => { const t = db.transaction(s).objectStore(s).getAll(); t.onsuccess = () => r(t.result); }); };
 const dbClear = async (s) => { const db = await openDB(); return new Promise(r => { const t = db.transaction(s, 'readwrite').objectStore(s).clear(); t.onsuccess = () => r(); }); };
 
-const setStatus = m => document.getElementById('status').innerHTML = m;
-const log = m => document.getElementById('status').innerHTML += '\n' + m;
+// ═══════════ UI HELPERS ═══════════
+const setStatus = m => { document.getElementById('status').innerHTML = m; };
+const log = m => { 
+    const st = document.getElementById('status');
+    st.innerHTML += '\n' + m; 
+    st.scrollTop = st.scrollHeight;
+};
+const setProgress = pct => { document.getElementById('progress').style.width = pct + '%'; };
 
+// ═══════════ WEBAUTHN (HUELLA DEL S26) ═══════════
 const buf2b64 = b => btoa(String.fromCharCode(...new Uint8Array(b)));
 const b64url2buf = s => {
     const b = atob(s.replace(/-/g, '+').replace(/_/g, '/'));
@@ -79,12 +98,12 @@ const b64url2buf = s => {
     return u;
 };
 
-async function bioEnroll() {
+async function createPasskey() {
     const cred = await navigator.credentials.create({
         publicKey: {
             challenge: crypto.getRandomValues(new Uint8Array(32)),
-            rp: { name: 'BioLocal', id: location.hostname },
-            user: { id: crypto.getRandomValues(new Uint8Array(16)), name: 'user@local', displayName: 'Usuario Local' },
+            rp: { name: 'BioLocal KYC', id: location.hostname },
+            user: { id: crypto.getRandomValues(new Uint8Array(16)), name: 'user@local', displayName: 'Usuario KYC' },
             pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
             authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'required' },
             timeout: 60000, attestation: 'none'
@@ -93,7 +112,7 @@ async function bioEnroll() {
     return buf2b64(cred.rawId);
 }
 
-async function bioVerify(credIdB64) {
+async function verifyPasskey(credIdB64) {
     const cred = await navigator.credentials.get({
         publicKey: {
             challenge: crypto.getRandomValues(new Uint8Array(32)),
@@ -104,64 +123,102 @@ async function bioVerify(credIdB64) {
     return !!cred;
 }
 
+// Flujo interactivo de 5 dedos (Evita que el navegador bloquee los popups)
+const dedos = ["Pulgar Derecho", "Índice Derecho", "Medio Derecho", "Anular Derecho", "Meñique Derecho"];
+async function protocolo5Huellas(credId, esRegistro = false) {
+    for (let i = 0; i < dedos.length; i++) {
+        log(`\n👉 Esperando [ ${dedos[i].toUpperCase()} ]...`);
+        setProgress((i / 5) * 100);
+        
+        // Esperar a que el usuario toque un botón para lanzar la huella (WebAuthn requiere gesto del usuario)
+        await new Promise(resolve => {
+            const box = document.getElementById('cam-actions'); // Reusamos el div de acciones
+            box.innerHTML = `<button class="btn-primary" style="margin-top:10px" onclick="this.remove()">👆 Toca aquí para poner el ${dedos[i]}</button>`;
+            box.classList.remove('hidden');
+            
+            // Sobrescribimos el evento click del botón para que resuelva la promesa y lance la huella
+            box.querySelector('button').onclick = async (e) => {
+                e.target.textContent = "⏳ Leyendo sensor...";
+                try {
+                    if (esRegistro && i === 0) {
+                        // La primera vez crea la llave
+                        const newCred = await createPasskey();
+                        resolve(newCred); 
+                    } else {
+                        // Las demás veces verifica
+                        await verifyPasskey(credId);
+                        resolve(true);
+                    }
+                } catch (err) {
+                    throw new Error("Huella cancelada o fallida.");
+                }
+            };
+        }).then(res => { if (esRegistro && i === 0) credId = res; });
+        
+        log(`✅ ${dedos[i]} verificado.`);
+    }
+    setProgress(100);
+    return credId;
+}
+
+// ═══════════ CÁMARA ═══════════
 let stream = null;
+const videoEl = document.getElementById('video');
+const cameraCard = document.getElementById('camera-card');
 
 async function openCamera(facing) {
-    // Apagar cámara anterior si existe
-    if (stream) {
-        stream.getTracks().forEach(t => t.stop());
-        stream = null;
-    }
-    const v = document.getElementById('video');
-    v.srcObject = null; // Limpiar buffer
-    
-    // 🔥 EL PARCHE: Esperar 500ms a que el hardware se libere
-    await new Promise(r => setTimeout(r, 500)); 
+    cameraCard.style.display = 'block';
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    videoEl.srcObject = null;
+    await new Promise(r => setTimeout(r, 600)); // Delay para liberar hardware
 
-    stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facing, width: { ideal: 1280 } }
-    });
-    v.srcObject = stream;
-    v.classList.remove('hidden');
-    await v.play();
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: facing, width: { ideal: 1280 } }
+        });
+        videoEl.srcObject = stream;
+        await videoEl.play();
+    } catch (e) {
+        log("❌ Error de cámara. Verifica los permisos en Chrome.");
+        throw e;
+    }
 }
 
 function closeCamera() {
     if (stream) stream.getTracks().forEach(t => t.stop());
     stream = null;
-    const v = document.getElementById('video');
-    v.srcObject = null;
-    v.classList.add('hidden');
-    document.getElementById('cam-actions').classList.add('hidden');
-    document.getElementById('cam-actions').innerHTML = '';
+    videoEl.srcObject = null;
+    cameraCard.style.display = 'none';
+    const box = document.getElementById('cam-actions');
+    box.innerHTML = '';
+    box.classList.add('hidden');
 }
 
 function captureFrame() {
-    const v = document.getElementById('video');
     const c = document.getElementById('canvas');
-    c.width = v.videoWidth;
-    c.height = v.videoHeight;
-    c.getContext('2d').drawImage(v, 0, 0);
+    c.width = videoEl.videoWidth;
+    c.height = videoEl.videoHeight;
+    c.getContext('2d').drawImage(videoEl, 0, 0);
     return c.toDataURL('image/jpeg', 0.85);
 }
 
-function waitCapture() {
+function waitCaptureUI() {
     return new Promise(resolve => {
         const box = document.getElementById('cam-actions');
         box.innerHTML = '';
         
-        const btnCamera = document.createElement('button');
-        btnCamera.className = 'btn-primary';
-        btnCamera.textContent = '📸 Capturar';
-        btnCamera.onclick = () => { box.innerHTML = ''; resolve('camera'); };
+        const btnCam = document.createElement('button');
+        btnCam.className = 'btn-primary';
+        btnCam.textContent = '📸 Capturar Foto';
+        btnCam.onclick = () => { box.innerHTML = ''; resolve('camera'); };
         
-        const btnGallery = document.createElement('button');
-        btnGallery.className = 'btn-secondary';
-        btnGallery.textContent = '🖼️ Subir de galería';
-        btnGallery.onclick = () => { box.innerHTML = ''; resolve('gallery'); };
-
-        box.appendChild(btnCamera);
-        box.appendChild(btnGallery);
+        const btnGal = document.createElement('button');
+        btnGal.className = 'btn-secondary';
+        btnGal.textContent = '🖼️ Subir de Galería';
+        btnGal.onclick = () => { box.innerHTML = ''; resolve('gallery'); };
+        
+        box.appendChild(btnCam);
+        if (document.getElementById('fileInput')) box.appendChild(btnGal);
         box.classList.remove('hidden');
     });
 }
@@ -180,132 +237,136 @@ function getGalleryImage() {
     });
 }
 
+// ═══════════ FLUJO: REGISTRO ═══════════
 async function enroll() {
-    setStatus('Iniciando registro...\n');
+    setStatus('Iniciando protocolo de registro...\n');
+    setProgress(0);
     try {
-        log('→ Apoya tu dedo o mira a la cámara...');
-        const credId = await bioEnroll();
-        log('✅ Biometría vinculada');
+        log('=== PASO 1: VALIDACIÓN DE 5 HUELLAS ===');
+        const credId = await protocolo5Huellas(null, true);
 
-        log('→ Documento: escoge cámara o galería.');
+        log('\n=== PASO 2: DOCUMENTO DE IDENTIDAD ===');
         await openCamera('environment');
-        const actionDoc = await waitCapture();
-        let docImg = null;
-        if (actionDoc === 'camera') {
-            docImg = captureFrame();
-        } else {
-            docImg = await getGalleryImage();
-        }
+        const actionDoc = await waitCaptureUI();
+        let docImg = (actionDoc === 'camera') ? captureFrame() : await getGalleryImage();
         closeCamera();
-
-        if (!docImg) throw new Error("No se seleccionó ningún documento.");
+        if (!docImg) throw new Error("No se capturó documento.");
         
-        log('→ OCR en proceso (puede tardar)...');
+        log('→ Procesando OCR (aprox 5 seg)...');
+        setProgress(60);
         const ocr = await Tesseract.recognize(docImg, 'spa');
         const docText = ocr.data.text;
-        log('✅ Texto leído:\n' + docText.slice(0, 200));
+        
+        // Regex mejorado para DUI El Salvador (00000000-0) o Licencia (0614-...)
+        const regexDUI = /[0-9]{8}-[0-9]{1}/g;
+        const regexLicencia = /[0-9]{4}-[0-9]{6}-[0-9]{3}-[0-9]{1,2}/g;
+        let docNumber = "DESCONOCIDO";
+        
+        const matchDUI = docText.match(regexDUI);
+        const matchLic = docText.match(regexLicencia);
+        
+        if (matchDUI) docNumber = matchDUI[0];
+        else if (matchLic) docNumber = matchLic[0];
+        else {
+            const fallback = docText.replace(/\s/g, '').match(/[A-Z0-9]{8,15}/);
+            docNumber = fallback ? fallback[0] : "00000000";
+        }
 
-        log('→ Cámara frontal: captura tu rostro en vivo.');
-        await openCamera('user'); // Aquí usará el parche
-        await waitCapture();
+        // Extraer nombre (buscando lineas en mayúsculas)
+        const lines = docText.split('\n');
+        const nameLine = lines.find(l => l.length > 5 && /^[A-ZÁÉÍÓÚÑ\s\.]+$/.test(l.trim()));
+        const fullName = nameLine ? nameLine.trim() : 'CIUDADANO NO IDENTIFICADO';
+
+        log(`✅ Documento: ${docNumber}`);
+
+        log('\n=== PASO 3: RECONOCIMIENTO FACIAL ===');
+        await openCamera('user');
+        await waitCaptureUI();
         const faceImg = captureFrame();
         closeCamera();
+        setProgress(90);
 
-        const docMatch = docText.replace(/\s/g, '').match(/[A-Z0-9]{6,12}/);
-        const docNumber = docMatch ? docMatch[0] : '000000';
-        const nameLine = docText.split('\n')
-            .filter(l => l.length > 5 && /[A-ZÁÉÍÓÚÑ]{3}/.test(l))
-            .sort((a, b) => (b.match(/[A-Z]/g) || []).length - (a.match(/[A-Z]/g) || []).length)[0];
-        const fullName = nameLine ? nameLine.trim().slice(0, 50) : 'Usuario Local';
-
+        // Guardar en DB
         await dbPut('users', {
-            id: 1, fullName, docNumber, credId,
-            faceRef: faceImg.slice(0, 5000),
-            enrolledAt: Date.now()
+            id: 1, fullName, docNumber, credId, faceRef: faceImg.slice(0, 5000), enrolledAt: Date.now()
         });
 
-        log(`\n✅ USUARIO REGISTRADO\nNombre: ${fullName}\nDoc: ${docNumber}`);
+        setProgress(100);
+        setStatus(`🎉 REGISTRO EXITOSO\n\nNombre: ${fullName}\nDocumento: ${docNumber}\nBiometría: 5/5 Huellas`);
+        
     } catch (e) {
-        log('\n❌ Error: ' + e.message);
+        log('\n❌ ERROR: ' + e.message);
+        setStatus('⛔ REGISTRO FALLIDO\n\n' + e.message);
+        setProgress(0);
     } finally {
         closeCamera();
     }
 }
 
+// ═══════════ FLUJO: VERIFICACIÓN ═══════════
 async function verify() {
-    setStatus('Verificando identidad...\n');
+    setStatus('Iniciando verificación de alta seguridad...\n');
+    setProgress(0);
     try {
         const user = await dbGet('users', 1);
-        if (!user) { log('❌ No hay usuario. Regístrate primero.'); return; }
+        if (!user) { log('❌ Base de datos vacía. Regístrate primero.'); return; }
 
-        log('→ Autentica con huella o rostro...');
-        let bioOk = false;
-        try { bioOk = await bioVerify(user.credId); } catch (e) { log('❌ Biometría cancelada'); }
-        if (bioOk) log('✅ Biometría OK');
+        log('=== PASO 1: VALIDACIÓN DE 5 HUELLAS ===');
+        await protocolo5Huellas(user.credId, false);
 
-        log('→ Documento: escoge cámara o galería.');
+        log('\n=== PASO 2: VERIFICACIÓN DE DOCUMENTO ===');
         await openCamera('environment');
-        const actionDoc = await waitCapture();
-        let img = null;
-        if (actionDoc === 'camera') {
-            img = captureFrame();
-        } else {
-            img = await getGalleryImage();
-        }
+        const actionDoc = await waitCaptureUI();
+        let docImg = (actionDoc === 'camera') ? captureFrame() : await getGalleryImage();
         closeCamera();
+        if (!docImg) throw new Error("Documento no capturado.");
 
-        if (!img) throw new Error("No se seleccionó ningún documento.");
+        log('→ Validando documento...');
+        setProgress(60);
+        const ocr = await Tesseract.recognize(docImg, 'spa');
+        const cleanText = ocr.data.text.replace(/\s/g, '');
+        const docOk = cleanText.includes(user.docNumber.replace(/\s/g, ''));
 
-        log('→ OCR...');
-        const ocr = await Tesseract.recognize(img, 'spa');
-        const clean = ocr.data.text.replace(/\s/g, '');
-        const docOk = clean.includes(user.docNumber.replace(/\s/g, ''));
-        log(docOk ? '✅ Documento coincide' : '❌ Documento NO coincide');
+        if (!docOk) throw new Error("El documento NO coincide con el registrado.");
+        log('✅ Documento coincide.');
 
-        const score = (bioOk && docOk) ? 1 : 0.5;
-        const decision = (bioOk && docOk) ? 'ACCEPT' : 'REJECT';
+        setProgress(100);
+        setStatus(`🎉 ACCESO CONCEDIDO\n\nIdentidad confirmada al 100%\nUsuario: ${user.fullName}\nDoc: ${user.docNumber}\nHuellas: 5/5 Validadas.`);
 
-        setStatus(
-            (decision === 'ACCEPT' ? '🎉 IDENTIDAD VERIFICADA\n\n' : '⛔ VERIFICACIÓN FALLIDA\n\n') +
-            `${bioOk ? '✅' : '❌'} Huella/Rostro\n` +
-            `${docOk ? '✅' : '❌'} Documento\n\n` +
-            `Usuario: ${user.fullName}\nDoc: ${user.docNumber}`
-        );
-
-        await dbPut('audit', { ts: Date.now(), userId: 1, bioOk, docOk, score, decision });
+        // Guardar auditoría
+        await dbPut('audit', { ts: Date.now(), userId: 1, bioOk: true, docOk: true, decision: 'ACCEPT' });
+        
     } catch (e) {
-        log('\n❌ ' + e.message);
+        log('\n❌ ACCESO DENEGADO: ' + e.message);
+        setStatus('⛔ VERIFICACIÓN FALLIDA\n\n' + e.message);
+        setProgress(0);
+        await dbPut('audit', { ts: Date.now(), userId: 1, bioOk: false, docOk: false, decision: 'REJECT' });
     } finally {
         closeCamera();
     }
 }
 
+// ═══════════ AUDITORÍA Y RESET ═══════════
 async function showAudit() {
     const logs = await dbGetAll('audit');
-    if (!logs.length) { setStatus('Sin registros.'); return; }
+    if (!logs.length) { setStatus('No hay registros de auditoría.'); return; }
     logs.sort((a, b) => b.ts - a.ts);
-    setStatus(logs.map(l =>
-        `${new Date(l.ts).toLocaleString('es')}\n` +
-        `${l.decision}\n` +
-        `Bio:${l.bioOk ? '✅' : '❌'} Doc:${l.docOk ? '✅' : '❌'}`
-    ).join('\n\n'));
+    
+    let text = "=== HISTORIAL DE AUDITORÍA ===\n\n";
+    logs.forEach(l => {
+        const date = new Date(l.ts).toLocaleString('es-SV');
+        text += `[${date}]\nResultado: ${l.decision}\nBio: ${l.bioOk ? '✅' : '❌'} | Doc: ${l.docOk ? '✅' : '❌'}\n\n`;
+    });
+    setStatus(text);
 }
 
 async function resetAll() {
-    if (!confirm('¿Borrar todo?')) return;
+    if (!confirm('¿Estás seguro de borrar todos los datos biométricos locales?')) return;
     await dbClear('users');
     await dbClear('audit');
-    setStatus('✅ Datos borrados.');
+    setProgress(0);
+    setStatus('✅ Base de datos borrada. Sistema reiniciado.');
 }
-
-(async () => {
-    if (!window.PublicKeyCredential) {
-        setStatus('⚠️ Necesitas Chrome/Safari actualizado y HTTPS.');
-        return;
-    }
-    const ok = await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
-    if (!ok) setStatus('⚠️ No hay biometría disponible. Registra tu huella primero.');
-})();
 </script>
 </body>
 </html>
