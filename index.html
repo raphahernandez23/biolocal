@@ -53,9 +53,10 @@ video { width: 100%; border-radius: 12px; margin-top: 12px; background: #000; ob
         <div id="status" class="status-box">Sistema listo. Esperando instrucciones...</div>
     </div>
 
-    <div class="card" id="camera-card" style="display:none;">
-        <video id="video" autoplay playsinline muted></video>
-        <div id="cam-actions"></div>
+    <!-- Contenedor de acciones (Botones de huella y cámara) -->
+    <div class="card" id="action-card" style="display:none;">
+        <video id="video" autoplay playsinline muted class="hidden"></video>
+        <div id="action-buttons"></div>
     </div>
     
     <canvas id="canvas" class="hidden"></canvas>
@@ -64,9 +65,9 @@ video { width: 100%; border-radius: 12px; margin-top: 12px; background: #000; ob
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-// ═══════════ BASE DE DATOS (IndexedDB) ═══════════
+// ═══════════ BASE DE DATOS ═══════════
 const openDB = () => new Promise((res, rej) => {
-    const req = indexedDB.open('biolocal_v2', 1);
+    const req = indexedDB.open('biolocal_v3', 1);
     req.onupgradeneeded = e => {
         const db = e.target.result;
         if (!db.objectStoreNames.contains('users')) db.createObjectStore('users', { keyPath: 'id' });
@@ -123,54 +124,66 @@ async function verifyPasskey(credIdB64) {
     return !!cred;
 }
 
-// Flujo interactivo de 5 dedos (Evita que el navegador bloquee los popups)
+// Flujo interactivo de 5 dedos
 const dedos = ["Pulgar Derecho", "Índice Derecho", "Medio Derecho", "Anular Derecho", "Meñique Derecho"];
-async function protocolo5Huellas(credId, esRegistro = false) {
+
+async function protocolo5Huellas(initialCredId, esRegistro = false) {
+    let currentCredId = initialCredId;
+    const actionCard = document.getElementById('action-card');
+    const videoEl = document.getElementById('video');
+    const box = document.getElementById('action-buttons');
+    
+    // Mostrar contenedor pero ocultar cámara (solo queremos los botones)
+    actionCard.style.display = 'block';
+    videoEl.classList.add('hidden');
+
     for (let i = 0; i < dedos.length; i++) {
         log(`\n👉 Esperando [ ${dedos[i].toUpperCase()} ]...`);
         setProgress((i / 5) * 100);
-        
-        // Esperar a que el usuario toque un botón para lanzar la huella (WebAuthn requiere gesto del usuario)
-        await new Promise(resolve => {
-            const box = document.getElementById('cam-actions'); // Reusamos el div de acciones
-            box.innerHTML = `<button class="btn-primary" style="margin-top:10px" onclick="this.remove()">👆 Toca aquí para poner el ${dedos[i]}</button>`;
+
+        await new Promise((resolve, reject) => {
+            box.innerHTML = `<button class="btn-primary" id="btn-finger" style="margin-top:10px">👆 Toca aquí para poner el ${dedos[i]}</button>`;
             box.classList.remove('hidden');
-            
-            // Sobrescribimos el evento click del botón para que resuelva la promesa y lance la huella
-            box.querySelector('button').onclick = async (e) => {
-                e.target.textContent = "⏳ Leyendo sensor...";
+
+            document.getElementById('btn-finger').onclick = async (e) => {
+                e.target.textContent = "⏳ Leyendo sensor biométrico...";
+                e.target.disabled = true;
                 try {
                     if (esRegistro && i === 0) {
-                        // La primera vez crea la llave
                         const newCred = await createPasskey();
-                        resolve(newCred); 
+                        resolve(newCred);
                     } else {
-                        // Las demás veces verifica
-                        await verifyPasskey(credId);
+                        await verifyPasskey(currentCredId);
                         resolve(true);
                     }
                 } catch (err) {
-                    throw new Error("Huella cancelada o fallida.");
+                    reject(new Error("Huella cancelada o fallida."));
                 }
             };
-        }).then(res => { if (esRegistro && i === 0) credId = res; });
-        
+        }).then(res => { 
+            if (esRegistro && i === 0) currentCredId = res; 
+        });
+
         log(`✅ ${dedos[i]} verificado.`);
+        box.innerHTML = ''; // Limpiar botón para el siguiente dedo
     }
     setProgress(100);
-    return credId;
+    actionCard.style.display = 'none'; // Ocultar al terminar las huellas
+    return currentCredId;
 }
 
 // ═══════════ CÁMARA ═══════════
 let stream = null;
 const videoEl = document.getElementById('video');
-const cameraCard = document.getElementById('camera-card');
+const actionCard = document.getElementById('action-card');
 
 async function openCamera(facing) {
-    cameraCard.style.display = 'block';
+    actionCard.style.display = 'block';
+    videoEl.classList.remove('hidden'); // Mostrar video
+    
     if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
     videoEl.srcObject = null;
-    await new Promise(r => setTimeout(r, 600)); // Delay para liberar hardware
+    await new Promise(r => setTimeout(r, 600)); // Parche para liberar hardware
 
     try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -188,10 +201,8 @@ function closeCamera() {
     if (stream) stream.getTracks().forEach(t => t.stop());
     stream = null;
     videoEl.srcObject = null;
-    cameraCard.style.display = 'none';
-    const box = document.getElementById('cam-actions');
-    box.innerHTML = '';
-    box.classList.add('hidden');
+    actionCard.style.display = 'none';
+    document.getElementById('action-buttons').innerHTML = '';
 }
 
 function captureFrame() {
@@ -204,7 +215,7 @@ function captureFrame() {
 
 function waitCaptureUI() {
     return new Promise(resolve => {
-        const box = document.getElementById('cam-actions');
+        const box = document.getElementById('action-buttons');
         box.innerHTML = '';
         
         const btnCam = document.createElement('button');
@@ -257,7 +268,7 @@ async function enroll() {
         const ocr = await Tesseract.recognize(docImg, 'spa');
         const docText = ocr.data.text;
         
-        // Regex mejorado para DUI El Salvador (00000000-0) o Licencia (0614-...)
+        // Regex mejorado para DUI El Salvador (00000000-0) o Licencia
         const regexDUI = /[0-9]{8}-[0-9]{1}/g;
         const regexLicencia = /[0-9]{4}-[0-9]{6}-[0-9]{3}-[0-9]{1,2}/g;
         let docNumber = "DESCONOCIDO";
@@ -333,7 +344,6 @@ async function verify() {
         setProgress(100);
         setStatus(`🎉 ACCESO CONCEDIDO\n\nIdentidad confirmada al 100%\nUsuario: ${user.fullName}\nDoc: ${user.docNumber}\nHuellas: 5/5 Validadas.`);
 
-        // Guardar auditoría
         await dbPut('audit', { ts: Date.now(), userId: 1, bioOk: true, docOk: true, decision: 'ACCEPT' });
         
     } catch (e) {
